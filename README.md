@@ -1,5 +1,9 @@
 # 🚇 tfl-cli
 
+[![npm version](https://img.shields.io/npm/v/@shan8851/tfl-cli.svg)](https://www.npmjs.com/package/@shan8851/tfl-cli)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
+
 Transport for London in your terminal. Built for AI agents, still pleasant for humans.
 
 ```bash

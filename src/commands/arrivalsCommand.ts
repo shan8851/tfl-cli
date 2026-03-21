@@ -1,0 +1,94 @@
+import type { Command } from 'commander';
+
+import { ensurePositiveInteger, formatEta, formatIsoTime, parseIntegerOption, validateAllowedValues } from '../lib/commandUtils.js';
+import { VALID_ROUTE_DIRECTIONS } from '../lib/constants.js';
+import { resolveStatusLineInput } from '../lib/lineAliases.js';
+import { resolveArrivalLocation } from '../lib/locationResolver.js';
+import { runCommand } from '../lib/output.js';
+
+import type { ArrivalData } from '../lib/types.js';
+import type { TflClient } from '../providers/tflClient.js';
+
+type ArrivalsCommandOptions = {
+  direction?: string;
+  json?: boolean;
+  limit?: number;
+  line?: string;
+  text?: boolean;
+};
+
+export const registerArrivalsCommand = (program: Command, tflClient: TflClient): void => {
+  program
+    .command('arrivals')
+    .description('Get live arrivals for a stop or station.')
+    .argument('<stop>', 'Stop or station name, id, hub id, postcode, or coordinates')
+    .option('--line <line>', 'Optional line alias to filter arrivals')
+    .option(
+      '--direction <direction>',
+      `Optional direction filter. Valid values: ${VALID_ROUTE_DIRECTIONS.join(', ')}`,
+    )
+    .option('--limit <count>', 'Maximum number of arrivals to return', parseIntegerOption, 10)
+    .option('--json', 'Force JSON output')
+    .option('--text', 'Force text output')
+    .action(async (stop: string, options: ArrivalsCommandOptions) => {
+      await runCommand(
+        'arrivals',
+        options,
+        async () => {
+          const limit = ensurePositiveInteger(options.limit ?? 10, 'limit');
+          const direction = options.direction
+            ? validateAllowedValues([options.direction], VALID_ROUTE_DIRECTIONS, 'direction')[0]
+            : undefined;
+          const lineIds = options.line ? resolveStatusLineInput(options.line) : undefined;
+          const resolvedStop = await resolveArrivalLocation(
+            tflClient,
+            stop,
+            lineIds?.length === 1 ? lineIds[0] : undefined,
+          );
+          const arrivals = lineIds
+            ? await tflClient.getStopPointArrivalsByLines(lineIds, resolvedStop.stopPointId, direction)
+            : await tflClient.getStopPointArrivals(resolvedStop.stopPointId);
+
+          return {
+            arrivals: arrivals
+              .sort((left, right) => left.timeToStation - right.timeToStation)
+              .slice(0, limit)
+              .map((arrival) => ({
+                currentLocation: arrival.currentLocation,
+                destinationName: arrival.destinationName,
+                direction: arrival.direction,
+                expectedArrival: arrival.expectedArrival,
+                lineId: arrival.lineId,
+                lineName: arrival.lineName,
+                platformName: arrival.platformName,
+                timeToStationSeconds: arrival.timeToStation,
+                towards: arrival.towards,
+              })),
+            filters: {
+              direction,
+              line: options.line,
+            },
+            stop: {
+              ...resolvedStop.location,
+              id: resolvedStop.stopPointId,
+            },
+          } satisfies ArrivalData;
+        },
+        formatArrivalsText,
+      );
+    });
+};
+
+const formatArrivalsText = (data: ArrivalData): string => {
+  if (data.arrivals.length === 0) {
+    return `No live arrivals currently available for ${data.stop.label}.`;
+  }
+
+  const lines = data.arrivals.map((arrival) => {
+    const platform = arrival.platformName ? ` | ${arrival.platformName}` : '';
+    const destination = arrival.destinationName ?? arrival.towards ?? 'Unknown destination';
+    return `${formatEta(arrival.timeToStationSeconds)} | ${arrival.lineName} to ${destination}${platform} | ${formatIsoTime(arrival.expectedArrival)}`;
+  });
+
+  return [`${data.stop.label}`, ...lines].join('\n');
+};

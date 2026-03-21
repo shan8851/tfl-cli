@@ -21,14 +21,26 @@
     "typecheck": "tsc --noEmit"
   },
   "keywords": [
-    "agents",
-    "cli",
-    "journey-planner",
-    "london",
     "tfl",
-    "transport-for-london"
+    "transport-for-london",
+    "london",
+    "cli",
+    "tube",
+    "journey-planner",
+    "ai-agent",
+    "agents",
+    "openclaw"
   ],
+  "author": "shan8851",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shan8851/tfl-cli.git"
+  },
+  "homepage": "https://github.com/shan8851/tfl-cli",
+  "bugs": {
+    "url": "https://github.com/shan8851/tfl-cli/issues"
+  },
   "dependencies": {
     "commander": "^14.0.1",
     "dotenv": "^17.2.3",

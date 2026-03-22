@@ -1,6 +1,6 @@
 {
   "name": "@shan8851/tfl-cli",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Transport for London CLI for agents and humans",
   "type": "module",
   "bin": {

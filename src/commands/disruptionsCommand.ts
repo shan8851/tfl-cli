@@ -1,11 +1,13 @@
 import type { Command } from 'commander';
 
+import { resolveLineHex } from '../lib/colours.js';
 import { DEFAULT_STATUS_MODES, VALID_STATUS_MODES } from '../lib/constants.js';
 import { parseCsvOption, validateAllowedValues } from '../lib/commandUtils.js';
 import { resolveStatusLineInput } from '../lib/lineAliases.js';
-import { runCommand } from '../lib/output.js';
+import { runCommand, withGlobalOutputOptions } from '../lib/output.js';
 
 import type { DisruptionData } from '../lib/types.js';
+import type { TextFormatterContext } from '../lib/output.js';
 import type { TflClient } from '../providers/tflClient.js';
 
 type DisruptionsCommandOptions = {
@@ -27,10 +29,10 @@ export const registerDisruptionsCommand = (program: Command, tflClient: TflClien
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
     .addHelpText('after', '\nOnly rail modes are supported here in v1. Bus service status is out of scope.')
-    .action(async (line: string | undefined, options: DisruptionsCommandOptions) => {
+    .action(async (line: string | undefined, options: DisruptionsCommandOptions, command: Command) => {
       await runCommand(
         'disruptions',
-        options,
+        withGlobalOutputOptions(command, options),
         async () => {
           if (line) {
             const lineIds = resolveStatusLineInput(line);
@@ -92,15 +94,56 @@ const deduplicateDisruptions = <
     ).values(),
   );
 
-const formatDisruptionsText = (data: DisruptionData): string => {
+const formatDisruptionsText = (data: DisruptionData, context: TextFormatterContext): string => {
   if (data.disruptions.length === 0) {
     return 'No current disruptions.';
   }
 
   return data.disruptions
     .map((disruption) => {
-      const prefix = disruption.category ? `[${disruption.category}] ` : '';
-      return `${prefix}${disruption.description}`;
+      const parsedDisruption = parseDisruptionDescription(disruption.description);
+
+      if (!parsedDisruption) {
+        return context.text
+          .wrapText(disruption.description, {
+            continuationIndent: '  ',
+            firstIndent: '',
+            width: context.terminalWidth,
+          })
+          .map((line) => context.text.style.dim(line))
+          .join('\n');
+      }
+
+      const label = context.text.style.line(
+        context.text.style.bold(parsedDisruption.lineLabel),
+        parsedDisruption.lineLabel,
+      );
+      const descriptionLines = context.text
+        .wrapText(parsedDisruption.description, {
+          continuationIndent: '  ',
+          firstIndent: '  ',
+          width: context.terminalWidth,
+        })
+        .map((line) => context.text.style.dim(line));
+
+      return [label, ...descriptionLines].join('\n');
     })
-    .join('\n');
+    .join('\n\n');
+};
+
+const parseDisruptionDescription = (
+  value: string,
+): { description: string; lineLabel: string } | undefined => {
+  const match = value.match(/^(?<lineLabel>.+?)(?:\s+Line)?:\s+(?<description>.+)$/i);
+  const lineLabel = match?.groups?.['lineLabel']?.trim();
+  const description = match?.groups?.['description']?.trim();
+
+  if (!lineLabel || !description || !resolveLineHex(lineLabel)) {
+    return undefined;
+  }
+
+  return {
+    description,
+    lineLabel,
+  };
 };

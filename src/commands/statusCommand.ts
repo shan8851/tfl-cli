@@ -3,9 +3,10 @@ import type { Command } from 'commander';
 import { DEFAULT_STATUS_MODES, VALID_STATUS_MODES } from '../lib/constants.js';
 import { parseCsvOption, validateAllowedValues } from '../lib/commandUtils.js';
 import { resolveStatusLineInput } from '../lib/lineAliases.js';
-import { runCommand } from '../lib/output.js';
+import { runCommand, withGlobalOutputOptions } from '../lib/output.js';
 
 import type { StatusData } from '../lib/types.js';
+import type { TextFormatterContext } from '../lib/output.js';
 import type { TflClient } from '../providers/tflClient.js';
 
 type StatusCommandOptions = {
@@ -29,10 +30,10 @@ export const registerStatusCommand = (program: Command, tflClient: TflClient): v
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
     .addHelpText('after', '\nOnly rail modes are supported here in v1. Bus service status is out of scope.')
-    .action(async (line: string | undefined, options: StatusCommandOptions) => {
+    .action(async (line: string | undefined, options: StatusCommandOptions, command: Command) => {
       await runCommand(
         'status',
-        options,
+        withGlobalOutputOptions(command, options),
         async () => {
           if (line) {
             const lineIds = resolveStatusLineInput(line);
@@ -89,21 +90,50 @@ export const registerStatusCommand = (program: Command, tflClient: TflClient): v
     });
 };
 
-const formatStatusText = (data: StatusData): string => {
+const formatStatusText = (data: StatusData, context: TextFormatterContext): string => {
   if (data.lines.length === 0) {
     return 'No line status data returned.';
   }
 
   return data.lines
     .map((line) => {
-      const statuses = line.statuses
-        .map((status) => {
-          const reason = status.reason ? ` - ${status.reason.trim()}` : '';
-          return `${status.description}${reason}`;
-        })
-        .join(' | ');
+      const lineLabel = context.text.style.bold(context.text.style.line(line.name, line.id));
+      const statusLines = line.statuses.flatMap((status) => {
+        const description = `${getStatusEmoji(status.description)} ${status.description}`;
+        const statusLine = `  ${context.text.style.status(description, status.description)}`;
+        const reasonLines = status.reason
+          ? context.text
+              .wrapText(status.reason.trim(), {
+                continuationIndent: '    ',
+                firstIndent: '    ',
+                width: context.terminalWidth,
+              })
+              .map((reasonLine) => context.text.style.dim(reasonLine))
+          : [];
 
-      return `${line.name}: ${statuses}`;
+        return [statusLine, ...reasonLines];
+      });
+
+      return [lineLabel, ...statusLines].join('\n');
     })
-    .join('\n');
+    .join('\n\n');
+};
+
+const getStatusEmoji = (value: string): string => {
+  const normalizedValue = value.trim().toLowerCase();
+
+  if (normalizedValue === 'good service') {
+    return '✅';
+  }
+
+  if (
+    normalizedValue === 'part closure' ||
+    normalizedValue === 'part suspended' ||
+    normalizedValue === 'severe delays' ||
+    normalizedValue === 'suspended'
+  ) {
+    return '🔴';
+  }
+
+  return '⚠️';
 };

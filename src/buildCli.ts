@@ -32,6 +32,7 @@ export const buildCli = (dependencies?: CliDependencies): Command => {
   program
     .name('tfl')
     .description('Transport for London CLI for agents and humans')
+    .option('--no-color', 'Disable ANSI colours in text output')
     .showHelpAfterError()
     .showSuggestionAfterError()
     .version(packageJson.version);

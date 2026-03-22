@@ -45,16 +45,16 @@ export const validateAllowedValues = (
   return values;
 };
 
-export const formatDurationMinutes = (value: number): string => `${value}m`;
+export const formatDurationMinutes = (value: number): string => `${value} min`;
 
 export const formatPence = (value: number): string => `GBP ${(value / 100).toFixed(2)}`;
 
 export const formatEta = (seconds: number): string => {
   if (seconds < 60) {
-    return '<1m';
+    return '<1 min';
   }
 
-  return `${Math.round(seconds / 60)}m`;
+  return `${Math.round(seconds / 60)} min`;
 };
 
 export const formatIsoTime = (value: string): string => {

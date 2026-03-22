@@ -71,6 +71,8 @@ export const STATUS_LINE_ALIASES: Record<string, string[]> = {
   jubilee: ['jubilee'],
   liberty: ['liberty'],
   lioness: ['lioness'],
+  'london overground': ['liberty', 'lioness', 'mildmay', 'suffragette', 'weaver', 'windrush'],
+  'london-overground': ['liberty', 'lioness', 'mildmay', 'suffragette', 'weaver', 'windrush'],
   mildmay: ['mildmay'],
   metropolitan: ['metropolitan'],
   northern: ['northern'],

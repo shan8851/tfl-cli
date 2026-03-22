@@ -57,11 +57,12 @@ Supports station names, postcodes (`SE1 9SG`), coordinates (`51.50,-0.12`), and 
 
 ## Agent Integration
 
-The CLI defaults to **text in a TTY** and **JSON when piped** — no flag needed.
+The CLI defaults to **colorized text in a TTY** and **JSON when piped** — no flag needed.
 
 ```bash
 tfl route "SE1 9SG" "EC2R 8AH" --json    # Explicit JSON
 tfl arrivals "king's cross" | jq           # Auto-JSON when piped
+tfl --no-color status                      # Plain text without ANSI colors
 ```
 
 Every response uses a stable envelope:

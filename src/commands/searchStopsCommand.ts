@@ -1,10 +1,12 @@
 import type { Command } from 'commander';
 
+import { RAIL_MODES } from '../lib/constants.js';
 import { ensurePositiveInteger, parseIntegerOption } from '../lib/commandUtils.js';
 import { searchStopCandidates } from '../lib/locationResolver.js';
-import { runCommand } from '../lib/output.js';
+import { runCommand, withGlobalOutputOptions } from '../lib/output.js';
 
 import type { SearchStopsData } from '../lib/types.js';
+import type { TextFormatterContext } from '../lib/output.js';
 import type { TflClient } from '../providers/tflClient.js';
 
 type SearchStopsCommandOptions = {
@@ -23,10 +25,10 @@ export const registerSearchStopsCommand = (program: Command, tflClient: TflClien
     .option('--limit <count>', 'Maximum number of candidates to return', parseIntegerOption, 10)
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
-    .action(async (query: string, options: SearchStopsCommandOptions) => {
+    .action(async (query: string, options: SearchStopsCommandOptions, command: Command) => {
       await runCommand(
         'search stops',
-        options,
+        withGlobalOutputOptions(command, options),
         async () => {
           const limit = ensurePositiveInteger(options.limit ?? 10, 'limit');
           const candidates = await searchStopCandidates(tflClient, query, 'search');
@@ -49,15 +51,25 @@ export const registerSearchStopsCommand = (program: Command, tflClient: TflClien
     });
 };
 
-const formatSearchStopsText = (data: SearchStopsData): string => {
+const formatSearchStopsText = (data: SearchStopsData, context: TextFormatterContext): string => {
   if (data.candidates.length === 0) {
     return `No stop matches for "${data.query}".`;
   }
 
   return data.candidates
     .map((candidate) => {
-      const zone = candidate.zone ? ` zone ${candidate.zone}` : '';
-      return `${candidate.name} (${candidate.id}) [${candidate.modes.join(', ')}]${zone}`;
+      const isStationOrHub =
+        candidate.id.startsWith('HUB') || candidate.modes.some((mode) => RAIL_MODES.has(mode));
+      const name = isStationOrHub
+        ? context.text.style.bold(candidate.name)
+        : context.text.style.dim(candidate.name);
+      const stopId = context.text.style.dim(`(${candidate.id})`);
+      const modeTags = candidate.modes
+        .map((mode) => context.text.style.mode(`[${mode}]`, mode))
+        .join(' ');
+      const zone = candidate.zone ? context.text.style.dim(` zone ${candidate.zone}`) : '';
+
+      return [name, stopId, modeTags, zone].filter(Boolean).join(' ');
     })
     .join('\n');
 };

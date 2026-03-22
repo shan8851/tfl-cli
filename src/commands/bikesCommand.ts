@@ -3,9 +3,10 @@ import type { Command } from 'commander';
 import { createAppError } from '../lib/errors.js';
 import { ensurePositiveInteger, parseIntegerOption } from '../lib/commandUtils.js';
 import { resolveBikeOrigin } from '../lib/locationResolver.js';
-import { runCommand } from '../lib/output.js';
+import { runCommand, withGlobalOutputOptions } from '../lib/output.js';
 
 import type { BikesData } from '../lib/types.js';
+import type { TextFormatterContext } from '../lib/output.js';
 import type { PostcodesClient } from '../providers/postcodesClient.js';
 import type { TflClient } from '../providers/tflClient.js';
 
@@ -29,10 +30,10 @@ export const registerBikesCommand = (
     .option('--limit <count>', 'Maximum number of bike points to return', parseIntegerOption, 10)
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
-    .action(async (location: string, options: BikesCommandOptions) => {
+    .action(async (location: string, options: BikesCommandOptions, command: Command) => {
       await runCommand(
         'bikes',
-        options,
+        withGlobalOutputOptions(command, options),
         async () => {
           const radiusMeters = ensurePositiveInteger(options.radius ?? 500, 'radius');
           const limit = ensurePositiveInteger(options.limit ?? 10, 'limit');
@@ -102,17 +103,44 @@ const toOptionalBoolean = (value: string | undefined): boolean | undefined => {
   return undefined;
 };
 
-const formatBikesText = (data: BikesData): string => {
+const formatBikesText = (data: BikesData, context: TextFormatterContext): string => {
   if (data.bikePoints.length === 0) {
     return `No bike points found within ${data.radiusMeters}m of ${data.origin.label}.`;
   }
 
+  const nameWidth = Math.max(...data.bikePoints.map((bikePoint) => bikePoint.name.length));
+
   return data.bikePoints
     .map((bikePoint) => {
       const distance = typeof bikePoint.distanceMeters === 'number' ? `${Math.round(bikePoint.distanceMeters)}m` : 'distance unknown';
-      const bikes = typeof bikePoint.bikes === 'number' ? `${bikePoint.bikes} bikes` : 'bikes unknown';
-      const docks = typeof bikePoint.emptyDocks === 'number' ? `${bikePoint.emptyDocks} empty docks` : 'docks unknown';
-      return `${bikePoint.name} (${distance}) - ${bikes}, ${docks}`;
+      const name = context.text.style.white(context.text.padVisibleEnd(bikePoint.name, nameWidth));
+      const distanceLabel = context.text.style.dim(`(${distance})`);
+      const bikes = formatBikeAvailability(bikePoint.bikes, 'bikes', context);
+      const docks = formatBikeAvailability(bikePoint.emptyDocks, 'empty docks', context);
+
+      return `${name} ${distanceLabel}  ${bikes}  ${docks}`;
     })
     .join('\n');
+};
+
+const formatBikeAvailability = (
+  count: number | undefined,
+  label: string,
+  context: TextFormatterContext,
+): string => {
+  if (typeof count !== 'number') {
+    return context.text.style.dim(`${label} unknown`);
+  }
+
+  const value = `${count} ${label}`;
+
+  if (count === 0) {
+    return context.text.style.danger(value);
+  }
+
+  if (count <= 5) {
+    return context.text.style.warning(value);
+  }
+
+  return context.text.style.success(value);
 };

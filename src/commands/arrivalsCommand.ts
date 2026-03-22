@@ -1,12 +1,13 @@
 import type { Command } from 'commander';
 
-import { ensurePositiveInteger, formatEta, formatIsoTime, parseIntegerOption, validateAllowedValues } from '../lib/commandUtils.js';
+import { ensurePositiveInteger, formatEta, parseIntegerOption, validateAllowedValues } from '../lib/commandUtils.js';
 import { VALID_ROUTE_DIRECTIONS } from '../lib/constants.js';
 import { resolveStatusLineInput } from '../lib/lineAliases.js';
 import { resolveArrivalLocation } from '../lib/locationResolver.js';
-import { runCommand } from '../lib/output.js';
+import { runCommand, withGlobalOutputOptions } from '../lib/output.js';
 
 import type { ArrivalData } from '../lib/types.js';
+import type { TextFormatterContext } from '../lib/output.js';
 import type { TflClient } from '../providers/tflClient.js';
 
 type ArrivalsCommandOptions = {
@@ -30,10 +31,10 @@ export const registerArrivalsCommand = (program: Command, tflClient: TflClient):
     .option('--limit <count>', 'Maximum number of arrivals to return', parseIntegerOption, 10)
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
-    .action(async (stop: string, options: ArrivalsCommandOptions) => {
+    .action(async (stop: string, options: ArrivalsCommandOptions, command: Command) => {
       await runCommand(
         'arrivals',
-        options,
+        withGlobalOutputOptions(command, options),
         async () => {
           const limit = ensurePositiveInteger(options.limit ?? 10, 'limit');
           const direction = options.direction
@@ -79,16 +80,42 @@ export const registerArrivalsCommand = (program: Command, tflClient: TflClient):
     });
 };
 
-const formatArrivalsText = (data: ArrivalData): string => {
+const formatArrivalsText = (data: ArrivalData, context: TextFormatterContext): string => {
   if (data.arrivals.length === 0) {
     return `No live arrivals currently available for ${data.stop.label}.`;
   }
 
+  const lineNameWidth = Math.max(...data.arrivals.map((arrival) => arrival.lineName.length));
+
   const lines = data.arrivals.map((arrival) => {
-    const platform = arrival.platformName ? ` | ${arrival.platformName}` : '';
     const destination = arrival.destinationName ?? arrival.towards ?? 'Unknown destination';
-    return `${formatEta(arrival.timeToStationSeconds)} | ${arrival.lineName} to ${destination}${platform} | ${formatIsoTime(arrival.expectedArrival)}`;
+    const lineLabel = context.text.style.line(
+      context.text.padVisibleEnd(arrival.lineName, lineNameWidth),
+      arrival.lineId,
+    );
+    const destinationLabel = context.text.style.white(destination);
+    const platformLabel = arrival.platformName
+      ? context.text.style.dim(`  ${arrival.platformName}`)
+      : '';
+    const etaLabel = context.text.style.bold(formatEta(arrival.timeToStationSeconds));
+    const leftColumn = `${lineLabel}  ${destinationLabel}${platformLabel}`;
+
+    return formatArrivalRow(leftColumn, etaLabel, context);
   });
 
-  return [`${data.stop.label}`, ...lines].join('\n');
+  return [context.text.style.bold(data.stop.label), ...lines].join('\n');
+};
+
+const formatArrivalRow = (
+  leftColumn: string,
+  etaLabel: string,
+  context: TextFormatterContext,
+): string => {
+  const combinedWidth = context.text.visibleWidth(leftColumn) + context.text.visibleWidth(etaLabel) + 2;
+
+  if (combinedWidth <= context.terminalWidth) {
+    return context.text.joinAligned(leftColumn, etaLabel, context.terminalWidth);
+  }
+
+  return `${leftColumn}  ${etaLabel}`;
 };

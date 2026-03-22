@@ -4,9 +4,10 @@ import { VALID_ROUTE_ACCESSIBILITY, VALID_ROUTE_ACCESSIBILITY_QUERY_VALUES, VALI
 import { createAppError } from '../lib/errors.js';
 import { ensurePositiveInteger, formatDurationMinutes, formatIsoTime, formatPence, normalizeDateInput, normalizeTimeInput, parseCsvOption, parseIntegerOption, validateAllowedValues } from '../lib/commandUtils.js';
 import { resolveRouteLocation } from '../lib/locationResolver.js';
-import { runCommand } from '../lib/output.js';
+import { runCommand, withGlobalOutputOptions } from '../lib/output.js';
 
 import type { RouteData } from '../lib/types.js';
+import type { TextFormatterContext } from '../lib/output.js';
 import type { PostcodesClient } from '../providers/postcodesClient.js';
 import type { TflClient } from '../providers/tflClient.js';
 
@@ -50,10 +51,10 @@ export const registerRouteCommand = (
     .option('--max-walk-minutes <minutes>', 'Maximum walking minutes', parseIntegerOption)
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
-    .action(async (from: string, to: string, options: RouteCommandOptions) => {
+    .action(async (from: string, to: string, options: RouteCommandOptions, command: Command) => {
       await runCommand(
         'route',
-        options,
+        withGlobalOutputOptions(command, options),
         async () => {
           const routeModes = options.mode
             ? validateAllowedValues(options.mode, VALID_ROUTE_MODES, 'mode')
@@ -155,7 +156,7 @@ export const registerRouteCommand = (
     });
 };
 
-const formatRouteText = (data: RouteData): string => {
+const formatRouteText = (data: RouteData, context: TextFormatterContext): string => {
   if (data.journeys.length === 0) {
     return `No journeys found from ${data.from.label} to ${data.to.label}.`;
   }
@@ -163,21 +164,94 @@ const formatRouteText = (data: RouteData): string => {
   return data.journeys
     .slice(0, 3)
     .map((journey, index) => {
-      const header = [
-        `Option ${index + 1}`,
-        `${formatDurationMinutes(journey.durationMinutes)}`,
-        `${formatIsoTime(journey.departureTime)} to ${formatIsoTime(journey.arrivalTime)}`,
+      const headerLeft = [
+        context.text.style.bold(`Option ${index + 1}`),
+        `${formatIsoTime(journey.departureTime)} -> ${formatIsoTime(journey.arrivalTime)}`,
         journey.farePence ? formatPence(journey.farePence) : undefined,
       ]
         .filter(Boolean)
-        .join(' | ');
+        .join('  ');
+      const header = formatAlignedOrBracketed(
+        headerLeft,
+        context.text.style.bold(formatDurationMinutes(journey.durationMinutes)),
+        context,
+      );
 
-      const legs = journey.legs.map((leg) => {
-        const direction = leg.direction ? ` | ${leg.direction}` : '';
-        return `- ${leg.summary} | ${leg.origin} to ${leg.destination} | ${formatDurationMinutes(leg.durationMinutes)}${direction}`;
+      const legs = journey.legs.flatMap((leg) => {
+        const tokenLabel = getLegTokenLabel(leg);
+        const token = styleLegToken(tokenLabel, leg.lineName, leg.mode, context);
+        const summaryLine = formatAlignedOrBracketed(
+          `${token} ${leg.origin} -> ${leg.destination}`,
+          context.text.style.bold(formatDurationMinutes(leg.durationMinutes)),
+          context,
+        );
+        const detail = [leg.summary, leg.direction].filter(Boolean).join(' | ');
+        const detailLines = detail
+          ? context.text
+              .wrapText(detail, {
+                continuationIndent: '  ',
+                firstIndent: '  ',
+                width: context.terminalWidth,
+              })
+              .map((line) => context.text.style.dim(line))
+          : [];
+
+        return [summaryLine, ...detailLines];
       });
 
       return [header, ...legs].join('\n');
     })
     .join('\n\n');
 };
+
+const formatAlignedOrBracketed = (
+  left: string,
+  right: string,
+  context: TextFormatterContext,
+): string => {
+  const combinedWidth = context.text.visibleWidth(left) + context.text.visibleWidth(right) + 2;
+
+  if (combinedWidth <= context.terminalWidth) {
+    return context.text.joinAligned(left, right, context.terminalWidth);
+  }
+
+  return `${left} [${right}]`;
+};
+
+const getLegTokenLabel = (leg: RouteData['journeys'][number]['legs'][number]): string => {
+  if (leg.mode === 'walking') {
+    return 'Walk';
+  }
+
+  if (leg.mode === 'public-bus' || leg.mode === 'bus') {
+    return leg.lineName ? `Bus ${leg.lineName}` : 'Bus';
+  }
+
+  if (leg.mode === 'national-rail' || leg.mode === 'train') {
+    return leg.lineName ?? 'National Rail';
+  }
+
+  return leg.lineName ?? toTitleCase(leg.mode);
+};
+
+const styleLegToken = (
+  value: string,
+  lineName: string | undefined,
+  mode: string,
+  context: TextFormatterContext,
+): string => {
+  const boldValue = context.text.style.bold(value);
+
+  if (lineName) {
+    return context.text.style.line(boldValue, lineName);
+  }
+
+  return context.text.style.mode(boldValue, mode);
+};
+
+const toTitleCase = (value: string): string =>
+  value
+    .split(/[\s-]+/)
+    .filter(Boolean)
+    .map((segment) => `${segment.charAt(0).toUpperCase()}${segment.slice(1)}`)
+    .join(' ');

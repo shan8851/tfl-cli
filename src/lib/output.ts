@@ -1,7 +1,23 @@
+import type { Command } from 'commander';
+import { createTextStyler, getTerminalWidth, joinAligned, padVisibleEnd, padVisibleStart, stripAnsi, visibleWidth, wrapText } from './colours.js';
 import { JSON_SCHEMA_VERSION } from './constants.js';
 import { formatAppError, toAppError } from './errors.js';
 
 import type { ErrorEnvelope, OutputMode, OutputOptions, SuccessEnvelope } from './types.js';
+
+export type TextFormatterContext = {
+  colorEnabled: boolean;
+  terminalWidth: number;
+  text: {
+    joinAligned: typeof joinAligned;
+    padVisibleEnd: typeof padVisibleEnd;
+    padVisibleStart: typeof padVisibleStart;
+    stripAnsi: typeof stripAnsi;
+    style: ReturnType<typeof createTextStyler>;
+    visibleWidth: typeof visibleWidth;
+    wrapText: typeof wrapText;
+  };
+};
 
 export const getOutputMode = (options: OutputOptions): OutputMode => {
   if (options.json && options.text) {
@@ -23,10 +39,28 @@ export const runCommand = async <TData>(
   commandName: string,
   options: OutputOptions,
   handler: () => Promise<TData>,
-  formatText: (data: TData) => string,
+  formatText: (data: TData, context: TextFormatterContext) => string,
 ): Promise<void> => {
   const requestedAt = new Date().toISOString();
   const outputMode = getOutputMode(options);
+  const colorEnabled =
+    outputMode === 'text' &&
+    process.stdout.isTTY === true &&
+    options.color !== false &&
+    !process.env['NO_COLOR'];
+  const textContext: TextFormatterContext = {
+    colorEnabled,
+    terminalWidth: getTerminalWidth(),
+    text: {
+      joinAligned,
+      padVisibleEnd,
+      padVisibleStart,
+      stripAnsi,
+      style: createTextStyler(colorEnabled),
+      visibleWidth,
+      wrapText,
+    },
+  };
 
   try {
     const data = await handler();
@@ -43,7 +77,7 @@ export const runCommand = async <TData>(
       return;
     }
 
-    process.stdout.write(`${formatText(data)}\n`);
+    process.stdout.write(`${formatText(data, textContext)}\n`);
   } catch (error) {
     const appError = toAppError(error);
     const envelope: ErrorEnvelope = {
@@ -68,6 +102,25 @@ export const runCommand = async <TData>(
 
     process.stderr.write(`${formatAppError(appError)}\n`);
   }
+};
+
+export const withGlobalOutputOptions = <TOptions extends OutputOptions>(
+  command: Command,
+  options: TOptions,
+): TOptions & OutputOptions => {
+  const globalOptions = command.optsWithGlobals();
+  const color =
+    typeof globalOptions === 'object' &&
+    globalOptions !== null &&
+    'color' in globalOptions &&
+    typeof globalOptions['color'] === 'boolean'
+      ? globalOptions['color']
+      : undefined;
+
+  return {
+    ...options,
+    color,
+  };
 };
 
 const writeJson = (value: unknown): void => {

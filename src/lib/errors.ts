@@ -85,6 +85,10 @@ export const formatAppError = (error: AppError): string => {
     return `${error.message}\n${candidates}\nUse "tfl search stops \\"${error.details.query}\\"" to inspect matches.`;
   }
 
+  if (hasHintDetails(error.details)) {
+    return `${error.message}\n${error.details.hint}`;
+  }
+
   return error.message;
 };
 
@@ -95,3 +99,9 @@ const isCandidateDetails = (
   value !== null &&
   'candidates' in value &&
   'query' in value;
+
+const hasHintDetails = (value: unknown): value is { hint: string } =>
+  typeof value === 'object' &&
+  value !== null &&
+  'hint' in value &&
+  typeof value['hint'] === 'string';

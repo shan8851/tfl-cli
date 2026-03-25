@@ -99,7 +99,7 @@ const runCli = async (
         from: 'user',
       });
     } catch (error) {
-      if (!(error instanceof Error) || !('code' in error)) {
+      if (!isCliExitError(error)) {
         throw error;
       }
     }
@@ -135,6 +135,10 @@ const runCli = async (
 };
 
 const stripAnsi = (value: string): string => value.replaceAll(ANSI_PATTERN, '');
+
+const isCliExitError = (error: unknown): boolean =>
+  error instanceof Error &&
+  ('code' in error || error.message.startsWith('process.exit unexpectedly called with "'));
 
 describe('tfl cli', () => {
   beforeEach(() => {
@@ -384,6 +388,71 @@ describe('tfl cli', () => {
     });
   });
 
+  it('projects arrivals json output into the standard envelope', async () => {
+    const tflClient = createStubTflClient({
+      getStopPoint: vi.fn(async () => ({
+        children: [
+          {
+            commonName: 'Waterloo Underground Station',
+            id: '940GZZLUWLO',
+            lines: [
+              {
+                id: 'northern',
+              },
+            ],
+            modes: ['tube'],
+            naptanId: '940GZZLUWLO',
+            stationNaptan: '940GZZLUWLO',
+            stopType: 'NaptanMetroStation',
+          },
+        ],
+        commonName: 'Waterloo',
+        id: 'HUBWAT',
+        lines: [],
+        modes: ['bus', 'national-rail', 'tube'],
+        naptanId: 'HUBWAT',
+      })),
+      getStopPointArrivals: vi.fn(async () => [
+        {
+          destinationName: 'Edgware via CX',
+          expectedArrival: '2026-03-21T22:11:56Z',
+          lineId: 'northern',
+          lineName: 'Northern',
+          naptanId: '940GZZLUWLO',
+          stationName: 'Waterloo Underground Station',
+          timeToStation: 96,
+        },
+      ]),
+      searchStopPoints: vi.fn(async () => ({
+        matches: [
+          {
+            id: 'HUBWAT',
+            lat: 51.504269,
+            lon: -0.113356,
+            modes: ['national-rail', 'bus', 'tube'],
+            name: 'Waterloo',
+            zone: '1',
+          },
+        ],
+        query: 'waterloo',
+        total: 1,
+      })),
+    });
+
+    const result = await runCli(['arrivals', 'waterloo', '--json', '--output', 'arrivals.0.lineName'], {
+      postcodesClient: createStubPostcodesClient(),
+      tflClient,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: 'arrivals',
+      data: 'Northern',
+      ok: true,
+      schemaVersion: '1',
+    });
+  });
+
   it('routes between exact station ids', async () => {
     const tflClient = createStubTflClient({
       getJourneyResults: vi.fn(async () => ({
@@ -603,6 +672,59 @@ describe('tfl cli', () => {
         ],
       },
       ok: true,
+    });
+  });
+
+  it('projects bike point subtrees in json mode', async () => {
+    const postcodesClient = createStubPostcodesClient({
+      lookupPostcode: vi.fn(async () => ({
+        latitude: 51.5049,
+        longitude: -0.0877,
+        postcode: 'SE1 9SG',
+      })),
+    });
+    const tflClient = createStubTflClient({
+      getNearbyBikePoints: vi.fn(async () => ({
+        places: [
+          {
+            additionalProperties: [
+              {
+                key: 'NbBikes',
+                value: '15',
+              },
+              {
+                key: 'NbDocks',
+                value: '35',
+              },
+              {
+                key: 'NbEmptyDocks',
+                value: '13',
+              },
+            ],
+            commonName: 'Waterloo Station 3, Waterloo',
+            distance: 245,
+            id: 'BikePoints_154',
+          },
+        ],
+      })),
+    });
+
+    const result = await runCli(['bikes', 'SE1 9SG', '--json', '--output', 'bikePoints.0'], {
+      postcodesClient,
+      tflClient,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: 'bikes',
+      data: {
+        bikes: 15,
+        docks: 35,
+        emptyDocks: 13,
+        id: 'BikePoints_154',
+      },
+      ok: true,
+      schemaVersion: '1',
     });
   });
 
@@ -907,6 +1029,288 @@ describe('tfl cli', () => {
     expect(stripAnsi(result.stdout)).toContain('  Take the 188 towards Russell Square | Northbound');
   });
 
+  it('prints projected route scalars as plain text', async () => {
+    const tflClient = createStubTflClient({
+      getJourneyResults: vi.fn(async () => ({
+        kind: 'itinerary' as const,
+        result: {
+          journeys: [
+            {
+              arrivalDateTime: '2026-03-21T22:27:00',
+              duration: 15,
+              fare: {
+                fares: [],
+                totalCost: 280,
+              },
+              legs: [
+                {
+                  arrivalPoint: {
+                    commonName: 'King\'s Cross St. Pancras Underground Station',
+                  },
+                  arrivalTime: '2026-03-21T22:27:00',
+                  departurePoint: {
+                    commonName: 'Waterloo Underground Station',
+                  },
+                  departureTime: '2026-03-21T22:12:00',
+                  disruptions: [],
+                  duration: 15,
+                  instruction: {
+                    summary: 'Northern line to Euston',
+                  },
+                  mode: {
+                    id: 'tube',
+                    name: 'tube',
+                  },
+                  plannedWorks: [],
+                  routeOptions: [],
+                },
+              ],
+              startDateTime: '2026-03-21T22:12:00',
+            },
+          ],
+          lines: [],
+          stopMessages: [],
+        },
+      })),
+      getStopPoint: vi.fn(async (id: string) => ({
+        children: [],
+        commonName:
+          id === '940GZZLUWLO'
+            ? 'Waterloo Underground Station'
+            : 'King\'s Cross St. Pancras Underground Station',
+        id,
+        lines: [],
+        modes: ['tube'],
+        naptanId: id,
+        stationNaptan: id,
+      })),
+    });
+
+    const result = await runCli(
+      ['route', '940GZZLUWLO', '940GZZLUKSX', '--text', '--output', 'journeys.0.durationMinutes'],
+      {
+        postcodesClient: createStubPostcodesClient(),
+        tflClient,
+      },
+      {
+        env: {
+          NO_COLOR: undefined,
+        },
+        isTTY: true,
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toBe('15\n');
+    expect(result.stdout).not.toMatch(ANSI_PATTERN);
+  });
+
+  it('pretty-prints projected route objects as plain json in text mode', async () => {
+    const tflClient = createStubTflClient({
+      getJourneyResults: vi.fn(async () => ({
+        kind: 'itinerary' as const,
+        result: {
+          journeys: [
+            {
+              arrivalDateTime: '2026-03-21T22:27:00',
+              duration: 15,
+              fare: {
+                fares: [],
+                totalCost: 280,
+              },
+              legs: [
+                {
+                  arrivalPoint: {
+                    commonName: 'Bus Stop A',
+                  },
+                  arrivalTime: '2026-03-21T22:15:00',
+                  departurePoint: {
+                    commonName: 'Waterloo Underground Station',
+                  },
+                  departureTime: '2026-03-21T22:12:00',
+                  disruptions: [],
+                  duration: 3,
+                  instruction: {
+                    summary: 'Walk to York Road bus stop',
+                  },
+                  mode: {
+                    id: 'walking',
+                    name: 'walking',
+                  },
+                  plannedWorks: [],
+                  routeOptions: [],
+                },
+              ],
+              startDateTime: '2026-03-21T22:12:00',
+            },
+          ],
+          lines: [],
+          stopMessages: [],
+        },
+      })),
+      getStopPoint: vi.fn(async (id: string) => ({
+        children: [],
+        commonName:
+          id === '940GZZLUWLO'
+            ? 'Waterloo Underground Station'
+            : 'King\'s Cross St. Pancras Underground Station',
+        id,
+        lines: [],
+        modes: ['tube'],
+        naptanId: id,
+        stationNaptan: id,
+      })),
+    });
+
+    const result = await runCli(
+      ['route', '940GZZLUWLO', '940GZZLUKSX', '--text', '--output', 'journeys.0.legs'],
+      {
+        postcodesClient: createStubPostcodesClient(),
+        tflClient,
+      },
+      {
+        env: {
+          NO_COLOR: undefined,
+        },
+        isTTY: true,
+      },
+    );
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).not.toMatch(ANSI_PATTERN);
+    expect(JSON.parse(result.stdout)).toStrictEqual([
+      {
+        arrivalTime: '2026-03-21T22:15:00',
+        departureTime: '2026-03-21T22:12:00',
+        destination: 'Bus Stop A',
+        durationMinutes: 3,
+        mode: 'walking',
+        origin: 'Waterloo Underground Station',
+        summary: 'Walk to York Road bus stop',
+      },
+    ]);
+  });
+
+  it('returns invalid projection paths as structured json errors', async () => {
+    const tflClient = createStubTflClient({
+      getJourneyResults: vi.fn(async () => ({
+        kind: 'itinerary' as const,
+        result: {
+          journeys: [],
+          lines: [],
+          stopMessages: [],
+        },
+      })),
+      getStopPoint: vi.fn(async (id: string) => ({
+        children: [],
+        commonName:
+          id === '940GZZLUWLO'
+            ? 'Waterloo Underground Station'
+            : 'King\'s Cross St. Pancras Underground Station',
+        id,
+        lines: [],
+        modes: ['tube'],
+        naptanId: id,
+        stationNaptan: id,
+      })),
+    });
+
+    const result = await runCli(
+      ['route', '940GZZLUWLO', '940GZZLUKSX', '--json', '--output', 'journeys.foo'],
+      {
+        postcodesClient: createStubPostcodesClient(),
+        tflClient,
+      },
+    );
+
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: 'route',
+      error: {
+        code: 'INVALID_INPUT',
+        details: {
+          examples: ['journeys.0.durationMinutes', 'journeys.0.legs'],
+          hint: 'Try paths like: journeys.0.durationMinutes, journeys.0.legs',
+          path: 'journeys.foo',
+        },
+        message: 'Invalid output path "journeys.foo".',
+      },
+      ok: false,
+    });
+  });
+
+  it('returns missing projection paths as structured json errors', async () => {
+    const tflClient = createStubTflClient({
+      getStopPoint: vi.fn(async () => ({
+        children: [
+          {
+            commonName: 'Waterloo Underground Station',
+            id: '940GZZLUWLO',
+            lines: [
+              {
+                id: 'northern',
+              },
+            ],
+            modes: ['tube'],
+            naptanId: '940GZZLUWLO',
+            stationNaptan: '940GZZLUWLO',
+            stopType: 'NaptanMetroStation',
+          },
+        ],
+        commonName: 'Waterloo',
+        id: 'HUBWAT',
+        lines: [],
+        modes: ['bus', 'national-rail', 'tube'],
+        naptanId: 'HUBWAT',
+      })),
+      getStopPointArrivals: vi.fn(async () => [
+        {
+          destinationName: 'Edgware via CX',
+          expectedArrival: '2026-03-21T22:11:56Z',
+          lineId: 'northern',
+          lineName: 'Northern',
+          naptanId: '940GZZLUWLO',
+          stationName: 'Waterloo Underground Station',
+          timeToStation: 96,
+        },
+      ]),
+      searchStopPoints: vi.fn(async () => ({
+        matches: [
+          {
+            id: 'HUBWAT',
+            lat: 51.504269,
+            lon: -0.113356,
+            modes: ['national-rail', 'bus', 'tube'],
+            name: 'Waterloo',
+            zone: '1',
+          },
+        ],
+        query: 'waterloo',
+        total: 1,
+      })),
+    });
+
+    const result = await runCli(['arrivals', 'waterloo', '--json', '--output', 'arrivals.0.foo'], {
+      postcodesClient: createStubPostcodesClient(),
+      tflClient,
+    });
+
+    expect(result.exitCode).toBe(2);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      command: 'arrivals',
+      error: {
+        code: 'NOT_FOUND',
+        details: {
+          examples: ['arrivals.0.lineName', 'arrivals.0.timeToStationSeconds'],
+          hint: 'Try paths like: arrivals.0.lineName, arrivals.0.timeToStationSeconds',
+          path: 'arrivals.0.foo',
+        },
+        message: 'Output path "arrivals.0.foo" did not match any value.',
+      },
+      ok: false,
+    });
+  });
+
   it('renders arrivals in aligned text mode without absolute times', async () => {
     const tflClient = createStubTflClient({
       getStopPoint: vi.fn(async () => ({
@@ -1109,12 +1513,127 @@ describe('tfl cli', () => {
     expect(result.stdout.trim()).toBe('0.2.0');
   });
 
-  it('prints help output', async () => {
+  it('prints top-level help output with agent-oriented examples', async () => {
     const result = await runCli(['--help']);
 
     expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Examples:');
     expect(result.stdout).toContain('--no-color');
     expect(result.stdout).toContain('status');
     expect(result.stdout).toContain('route');
+    expect(result.stdout).toContain('tfl status jubilee');
+    expect(result.stdout).toContain('tfl route "SE1 9SG" "king\'s cross"');
+    expect(result.stdout).toContain('tfl route "waterloo" "bank" --arrive-by --time 09:00');
+    expect(result.stdout).toContain('tfl arrivals "waterloo" --limit 5');
+    expect(result.stdout).toContain('tfl bikes "SE1 9SG" --radius 750');
+    expect(result.stdout).toContain(
+      'tfl route "SE1 9SG" "EC2R 8AH" --output journeys.0.durationMinutes',
+    );
+  });
+
+  it('prints route help output with exact examples', async () => {
+    const result = await runCli(['help', 'route']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Examples:');
+    expect(result.stdout).toContain('tfl route "SE1 9SG" "king\'s cross"');
+    expect(result.stdout).toContain('tfl route "waterloo" "bank" --arrive-by --time 09:00');
+    expect(result.stdout).toContain('tfl route "SE1 9SG" "EC2R 8AH" --mode tube,walking');
+    expect(result.stdout).toContain('tfl route "waterloo" "canary wharf" --output journeys.0.legs');
+  });
+
+  it('prints arrivals help output with exact examples', async () => {
+    const result = await runCli(['help', 'arrivals']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Examples:');
+    expect(result.stdout).toContain('tfl arrivals "waterloo"');
+    expect(result.stdout).toContain('tfl arrivals "king\'s cross" --line northern --limit 5');
+    expect(result.stdout).toContain(
+      'tfl arrivals "waterloo" --output arrivals.0.timeToStationSeconds',
+    );
+  });
+
+  it('prints bikes help output with exact examples', async () => {
+    const result = await runCli(['help', 'bikes']);
+
+    expect(result.exitCode).toBe(0);
+    expect(result.stdout).toContain('Examples:');
+    expect(result.stdout).toContain('tfl bikes "SE1 9SG"');
+    expect(result.stdout).toContain('tfl bikes "waterloo" --radius 750 --limit 5');
+    expect(result.stdout).toContain('tfl bikes "SE1 9SG" --output bikePoints.0.bikes');
+  });
+
+  it('keeps full arrivals payloads unchanged when output is absent', async () => {
+    const tflClient = createStubTflClient({
+      getStopPoint: vi.fn(async () => ({
+        children: [
+          {
+            commonName: 'Waterloo Underground Station',
+            id: '940GZZLUWLO',
+            lines: [
+              {
+                id: 'northern',
+              },
+            ],
+            modes: ['tube'],
+            naptanId: '940GZZLUWLO',
+            stationNaptan: '940GZZLUWLO',
+            stopType: 'NaptanMetroStation',
+          },
+        ],
+        commonName: 'Waterloo',
+        id: 'HUBWAT',
+        lines: [],
+        modes: ['bus', 'national-rail', 'tube'],
+        naptanId: 'HUBWAT',
+      })),
+      getStopPointArrivals: vi.fn(async () => [
+        {
+          destinationName: 'Edgware via CX',
+          expectedArrival: '2026-03-21T22:11:56Z',
+          lineId: 'northern',
+          lineName: 'Northern',
+          naptanId: '940GZZLUWLO',
+          stationName: 'Waterloo Underground Station',
+          timeToStation: 96,
+        },
+      ]),
+      searchStopPoints: vi.fn(async () => ({
+        matches: [
+          {
+            id: 'HUBWAT',
+            lat: 51.504269,
+            lon: -0.113356,
+            modes: ['national-rail', 'bus', 'tube'],
+            name: 'Waterloo',
+            zone: '1',
+          },
+        ],
+        query: 'waterloo',
+        total: 1,
+      })),
+    });
+
+    const result = await runCli(['arrivals', 'waterloo', '--json'], {
+      postcodesClient: createStubPostcodesClient(),
+      tflClient,
+    });
+
+    expect(result.exitCode).toBe(0);
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      data: {
+        arrivals: [
+          {
+            lineName: 'Northern',
+            timeToStationSeconds: 96,
+          },
+        ],
+        stop: {
+          id: '940GZZLUWLO',
+        },
+      },
+      ok: true,
+    });
   });
 });

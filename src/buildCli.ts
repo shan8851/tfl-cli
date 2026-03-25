@@ -22,6 +22,14 @@ export type CliDependencies = {
 
 const require = createRequire(import.meta.url);
 const packageJson = require('../package.json') as { version: string };
+const TOP_LEVEL_HELP_EXAMPLES = [
+  'tfl status jubilee',
+  'tfl route "SE1 9SG" "king\'s cross"',
+  'tfl route "waterloo" "bank" --arrive-by --time 09:00',
+  'tfl arrivals "waterloo" --limit 5',
+  'tfl bikes "SE1 9SG" --radius 750',
+  'tfl route "SE1 9SG" "EC2R 8AH" --output journeys.0.durationMinutes',
+].join('\n  ');
 
 export const buildCli = (dependencies?: CliDependencies): Command => {
   const config = loadConfig();
@@ -46,7 +54,7 @@ export const buildCli = (dependencies?: CliDependencies): Command => {
 
   program.addHelpText(
     'after',
-    '\nOutput defaults to text in a TTY and JSON when piped. Use --json or --text to override.',
+    `\nOutput defaults to text in a TTY and JSON when piped. Use --json or --text to override.\n\nExamples:\n  ${TOP_LEVEL_HELP_EXAMPLES}`,
   );
 
   return program;

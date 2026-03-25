@@ -10,9 +10,17 @@ import type { TextFormatterContext } from '../lib/output.js';
 import type { PostcodesClient } from '../providers/postcodesClient.js';
 import type { TflClient } from '../providers/tflClient.js';
 
+const BIKES_OUTPUT_EXAMPLES = ['bikePoints.0.bikes', 'bikePoints.0.emptyDocks'];
+const BIKES_HELP_EXAMPLES = [
+  'tfl bikes "SE1 9SG"',
+  'tfl bikes "waterloo" --radius 750 --limit 5',
+  'tfl bikes "SE1 9SG" --output bikePoints.0.bikes',
+].join('\n  ');
+
 type BikesCommandOptions = {
   json?: boolean;
   limit?: number;
+  output?: string;
   radius?: number;
   text?: boolean;
 };
@@ -28,8 +36,10 @@ export const registerBikesCommand = (
     .argument('<location>', 'Postcode, stop, station, id, or coordinates')
     .option('--radius <metres>', 'Search radius in metres', parseIntegerOption, 500)
     .option('--limit <count>', 'Maximum number of bike points to return', parseIntegerOption, 10)
+    .option('--output <path>', 'Project a single value or subtree by dot path')
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
+    .addHelpText('after', `\nExamples:\n  ${BIKES_HELP_EXAMPLES}`)
     .action(async (location: string, options: BikesCommandOptions, command: Command) => {
       await runCommand(
         'bikes',
@@ -74,6 +84,9 @@ export const registerBikesCommand = (
           } satisfies BikesData;
         },
         formatBikesText,
+        {
+          projectionExamples: BIKES_OUTPUT_EXAMPLES,
+        },
       );
     });
 };

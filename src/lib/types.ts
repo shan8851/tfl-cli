@@ -28,6 +28,7 @@ export type SuccessEnvelope<TData> = {
 export type OutputOptions = {
   color?: boolean | undefined;
   json?: boolean | undefined;
+  output?: string | undefined;
   text?: boolean | undefined;
 };
 

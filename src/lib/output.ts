@@ -2,6 +2,7 @@ import type { Command } from 'commander';
 import { createTextStyler, getTerminalWidth, joinAligned, padVisibleEnd, padVisibleStart, stripAnsi, visibleWidth, wrapText } from './colours.js';
 import { JSON_SCHEMA_VERSION } from './constants.js';
 import { formatAppError, toAppError } from './errors.js';
+import { projectOutputValue } from './projection.js';
 
 import type { ErrorEnvelope, OutputMode, OutputOptions, SuccessEnvelope } from './types.js';
 
@@ -17,6 +18,10 @@ export type TextFormatterContext = {
     visibleWidth: typeof visibleWidth;
     wrapText: typeof wrapText;
   };
+};
+
+type RunCommandOptions = {
+  projectionExamples?: string[] | undefined;
 };
 
 export const getOutputMode = (options: OutputOptions): OutputMode => {
@@ -40,6 +45,7 @@ export const runCommand = async <TData>(
   options: OutputOptions,
   handler: () => Promise<TData>,
   formatText: (data: TData, context: TextFormatterContext) => string,
+  runOptions: RunCommandOptions = {},
 ): Promise<void> => {
   const requestedAt = new Date().toISOString();
   const outputMode = getOutputMode(options);
@@ -64,9 +70,12 @@ export const runCommand = async <TData>(
 
   try {
     const data = await handler();
-    const envelope: SuccessEnvelope<TData> = {
+    const outputData = options.output
+      ? projectOutputValue(data, options.output, runOptions.projectionExamples ?? [])
+      : data;
+    const envelope: SuccessEnvelope<unknown> = {
       command: commandName,
-      data,
+      data: outputData,
       ok: true,
       requestedAt,
       schemaVersion: JSON_SCHEMA_VERSION,
@@ -77,7 +86,9 @@ export const runCommand = async <TData>(
       return;
     }
 
-    process.stdout.write(`${formatText(data, textContext)}\n`);
+    process.stdout.write(
+      `${options.output ? formatProjectedText(outputData) : formatText(data, textContext)}\n`,
+    );
   } catch (error) {
     const appError = toAppError(error);
     const envelope: ErrorEnvelope = {
@@ -123,6 +134,22 @@ export const withGlobalOutputOptions = <TOptions extends OutputOptions>(
   };
 };
 
+const formatProjectedText = (value: unknown): string => {
+  if (isScalarValue(value)) {
+    return value === null ? 'null' : String(value);
+  }
+
+  return stringifyJson(value);
+};
+
+const isScalarValue = (value: unknown): value is boolean | null | number | string =>
+  value === null ||
+  typeof value === 'boolean' ||
+  typeof value === 'number' ||
+  typeof value === 'string';
+
+const stringifyJson = (value: unknown): string => JSON.stringify(value, null, 2);
+
 const writeJson = (value: unknown): void => {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`);
+  process.stdout.write(`${stringifyJson(value)}\n`);
 };

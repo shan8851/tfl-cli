@@ -63,6 +63,7 @@ The CLI defaults to **colorized text in a TTY** and **JSON when piped** — no f
 tfl route "SE1 9SG" "EC2R 8AH" --json    # Explicit JSON
 tfl arrivals "king's cross" | jq           # Auto-JSON when piped
 tfl --no-color status                      # Plain text without ANSI colors
+tfl route "SE1 9SG" "EC2R 8AH" --output journeys.0.durationMinutes
 ```
 
 Every response uses a stable envelope:
@@ -70,7 +71,7 @@ Every response uses a stable envelope:
 ```json
 {
   "ok": true,
-  "schemaVersion": 1,
+  "schemaVersion": "1",
   "command": "status",
   "requestedAt": "2026-03-21T22:00:00.000Z",
   "data": { ... }
@@ -78,6 +79,16 @@ Every response uses a stable envelope:
 ```
 
 Errors return `ok: false` with structured `error.code`, `error.message`, and `error.retryable` fields. Exit codes: `0` success, `2` bad input/ambiguity, `3` upstream failure, `4` internal error.
+
+Use `--output <path>` on `route`, `arrivals`, and `bikes` when an agent only needs one field or subtree. Paths use dot notation with zero-based array indexes.
+
+```bash
+tfl route "SE1 9SG" "EC2R 8AH" --output journeys.0.durationMinutes
+tfl arrivals "waterloo" --json --output arrivals.0.lineName
+tfl bikes "SE1 9SG" --output bikePoints.0
+```
+
+In text mode, scalar projections print just the value. Object and array projections print plain pretty JSON instead of the richer human formatter.
 
 Works with [OpenClaw](https://github.com/openclaw/openclaw), Claude Desktop MCP, or any agent that can shell out.
 
@@ -106,6 +117,16 @@ $ tfl bikes "SE1 9SG"
 Waterloo Station 3    | 15 bikes | 13 empty docks | 245m
 Baylis Road           | 8 bikes  | 22 empty docks | 310m
 ...
+
+# Agent-friendly projection
+$ tfl arrivals "waterloo" --json --output arrivals.0.lineName
+{
+  "ok": true,
+  "schemaVersion": "1",
+  "command": "arrivals",
+  "requestedAt": "2026-03-21T22:00:00.000Z",
+  "data": "Northern"
+}
 ```
 
 ## License

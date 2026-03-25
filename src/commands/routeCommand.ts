@@ -11,6 +11,14 @@ import type { TextFormatterContext } from '../lib/output.js';
 import type { PostcodesClient } from '../providers/postcodesClient.js';
 import type { TflClient } from '../providers/tflClient.js';
 
+const ROUTE_OUTPUT_EXAMPLES = ['journeys.0.durationMinutes', 'journeys.0.legs'];
+const ROUTE_HELP_EXAMPLES = [
+  'tfl route "SE1 9SG" "king\'s cross"',
+  'tfl route "waterloo" "bank" --arrive-by --time 09:00',
+  'tfl route "SE1 9SG" "EC2R 8AH" --mode tube,walking',
+  'tfl route "waterloo" "canary wharf" --output journeys.0.legs',
+].join('\n  ');
+
 type RouteCommandOptions = {
   accessibility?: string[];
   arriveBy?: boolean;
@@ -18,6 +26,7 @@ type RouteCommandOptions = {
   json?: boolean;
   maxWalkMinutes?: number;
   mode?: string[];
+  output?: string;
   preference?: string;
   text?: boolean;
   time?: string;
@@ -49,8 +58,10 @@ export const registerRouteCommand = (
       parseCsvOption,
     )
     .option('--max-walk-minutes <minutes>', 'Maximum walking minutes', parseIntegerOption)
+    .option('--output <path>', 'Project a single value or subtree by dot path')
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
+    .addHelpText('after', `\nExamples:\n  ${ROUTE_HELP_EXAMPLES}`)
     .action(async (from: string, to: string, options: RouteCommandOptions, command: Command) => {
       await runCommand(
         'route',
@@ -152,6 +163,9 @@ export const registerRouteCommand = (
           } satisfies RouteData;
         },
         formatRouteText,
+        {
+          projectionExamples: ROUTE_OUTPUT_EXAMPLES,
+        },
       );
     });
 };

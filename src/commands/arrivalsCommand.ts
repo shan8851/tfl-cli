@@ -10,11 +10,19 @@ import type { ArrivalData } from '../lib/types.js';
 import type { TextFormatterContext } from '../lib/output.js';
 import type { TflClient } from '../providers/tflClient.js';
 
+const ARRIVALS_OUTPUT_EXAMPLES = ['arrivals.0.lineName', 'arrivals.0.timeToStationSeconds'];
+const ARRIVALS_HELP_EXAMPLES = [
+  'tfl arrivals "waterloo"',
+  'tfl arrivals "king\'s cross" --line northern --limit 5',
+  'tfl arrivals "waterloo" --output arrivals.0.timeToStationSeconds',
+].join('\n  ');
+
 type ArrivalsCommandOptions = {
   direction?: string;
   json?: boolean;
   limit?: number;
   line?: string;
+  output?: string;
   text?: boolean;
 };
 
@@ -29,8 +37,10 @@ export const registerArrivalsCommand = (program: Command, tflClient: TflClient):
       `Optional direction filter. Valid values: ${VALID_ROUTE_DIRECTIONS.join(', ')}`,
     )
     .option('--limit <count>', 'Maximum number of arrivals to return', parseIntegerOption, 10)
+    .option('--output <path>', 'Project a single value or subtree by dot path')
     .option('--json', 'Force JSON output')
     .option('--text', 'Force text output')
+    .addHelpText('after', `\nExamples:\n  ${ARRIVALS_HELP_EXAMPLES}`)
     .action(async (stop: string, options: ArrivalsCommandOptions, command: Command) => {
       await runCommand(
         'arrivals',
@@ -76,6 +86,9 @@ export const registerArrivalsCommand = (program: Command, tflClient: TflClient):
           } satisfies ArrivalData;
         },
         formatArrivalsText,
+        {
+          projectionExamples: ARRIVALS_OUTPUT_EXAMPLES,
+        },
       );
     });
 };

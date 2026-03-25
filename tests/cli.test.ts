@@ -1510,7 +1510,7 @@ describe('tfl cli', () => {
     const result = await runCli(['--version']);
 
     expect(result.exitCode).toBe(0);
-    expect(result.stdout.trim()).toBe('0.2.0');
+    expect(result.stdout.trim()).toBe('0.3.0');
   });
 
   it('prints top-level help output with agent-oriented examples', async () => {
